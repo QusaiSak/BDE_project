@@ -1,8 +1,8 @@
 .claude
 .env
-*.onnx
 .venv
 models/
 MIO-TCD-Classification/
 __pycache__
 data/
+presentation_images/

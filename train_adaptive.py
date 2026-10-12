@@ -1,3 +1,9 @@
+"""Train the 3-exit early-exit network on the 25%-pruned backbone, export it as three
+chained ONNX graphs (exit k only runs stage k on the previous exit's feature map),
+prove the weights are shared, and record cumulative MACs per exit.
+
+  python train_adaptive.py [--tag adaptive] [--splits 3 10] [--epochs 30] [--force]
+"""
 import argparse
 import os
 
@@ -21,9 +27,6 @@ def main():
     ap.add_argument("--head-ch", type=int, default=128)
     ap.add_argument("--loss-weights", type=float, nargs=3, default=[0.5, 0.5, 1.0])
     ap.add_argument("--select-weights", type=float, nargs=3, default=[0.25, 0.25, 0.5])
-    ap.add_argument("--kd", action="store_true", help="distil every exit from baseline.onnx")
-    ap.add_argument("--kd-alpha", type=float, default=0.5)
-    ap.add_argument("--kd-t", type=float, default=4.0)
     ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--lr", type=float, default=0.01)
     ap.add_argument("--wd", type=float, default=1e-4)
@@ -52,26 +55,13 @@ def main():
     print(f"[{a.tag}] splits after features {a.splits} (+ final {len(model.features) - 1}); "
           f"probed feature shapes {model.feat_shapes}")
 
-    teacher = None
-    if a.kd:
-        teacher = load_mobilenetv2_from_onnx(os.path.join(MODEL_DIR, "baseline.onnx")).to(device).eval()
-        for p in teacher.parameters():
-            p.requires_grad_(False)
-
     lw = a.loss_weights
 
+    # joint loss: weighted sum of the label-smoothed CE of every exit (deep supervision)
     def loss_fn(m, x, y):
-        outs = m(x)
-        if teacher is None:
-            return sum(w * F.cross_entropy(o, y, label_smoothing=0.1) for w, o in zip(lw, outs))
-        with torch.no_grad():
-            t = F.softmax(teacher(x) / a.kd_t, 1)
-        loss = 0.0
-        for w, o in zip(lw, outs):
-            kd = F.kl_div(F.log_softmax(o / a.kd_t, 1), t, reduction="batchmean") * a.kd_t ** 2
-            loss = loss + w * ((1 - a.kd_alpha) * F.cross_entropy(o, y, label_smoothing=0.1) + a.kd_alpha * kd)
-        return loss
+        return sum(w * F.cross_entropy(o, y, label_smoothing=0.1) for w, o in zip(lw, m(x)))
 
+    # epoch selection on the WEIGHTED MEAN of all exit accuracies (exit 3 alone starves exit 1)
     sw = np.array(a.select_weights) / sum(a.select_weights)
 
     def score_fn(m):
@@ -105,9 +95,8 @@ def main():
     assert max(diffs) < 1e-3 and min(agree) > 0.999
 
     # ---- weight-sharing proof
-    shared = []
     names = dict(model.named_parameters())
-    for wrap, parts in ((e1, ["features", "head1"]), (e2, ["features", "head2"]), (e3, ["features", "classifier"])):
+    for wrap in (e1, e2, e3):
         for n, p in wrap.named_parameters():
             assert any(p is q for q in names.values()), "exit module holds a copy"
     ptr_ok = all(p.data_ptr() == q.data_ptr() for p, q in zip(model.stage1.parameters(), model.features[: a.splits[0] + 1].parameters()))

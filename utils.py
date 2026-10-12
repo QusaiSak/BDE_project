@@ -1,3 +1,7 @@
+"""Shared helpers for the whole pipeline: paths, data loading/augmentation, metrics,
+calibration, model construction (MobileNetV2 + pruning + early exits), ONNX export and
+reload, and the runtime early-exit controller used by evaluation, benchmark and simulation.
+"""
 import copy
 import csv
 import os
@@ -24,12 +28,15 @@ SPLIT_DIR = os.path.join(DATA_DIR, "splits")
 CACHE_DIR = os.path.join(DATA_DIR, "cache")
 MODEL_DIR = os.path.join(ROOT, "models")
 RESULT_DIR = os.path.join(ROOT, "results")
+IMPROVED_DIR = os.path.join(RESULT_DIR, "improved")  # benchmark / final results / simulations
 
 CLASSES = ["articulated_truck", "bicycle", "bus", "car", "motorcycle",
            "non-motorized_vehicle", "pedestrian", "pickup_truck",
            "single_unit_truck", "work_van", "background"]
 NUM_CLASSES = len(CLASSES)
 OPSET = 18
+# The three static operating points (paths relative to MODEL_DIR)
+STATIC = {"baseline": "baseline.onnx", "pruned_25": "pruned/pruned_25.onnx", "pruned_50": "pruned/pruned_50.onnx"}
 
 
 # --------------------------------------------------------------------------- misc
@@ -66,10 +73,6 @@ def write_csv(path, rows, force, fieldnames=None):
 def read_csv(path):
     with open(path, newline="") as f:
         return list(csv.DictReader(f))
-
-
-def fmt(x, nd=4):
-    return f"{x:.{nd}f}" if isinstance(x, float) else x
 
 
 # --------------------------------------------------------------------------- data
@@ -221,6 +224,7 @@ def predict_torch(model, x, bs=1024):
     return [torch.cat(o) for o in outs]
 
 
+# Shared training loop for baseline, pruned and early-exit models.
 def fit(model, loss_fn, score_fn, train, epochs, lr, wd=1e-4, bs=256, desc="train", sampler_weights=None):
     """SGD+nesterov, cosine LR. Keeps the best-on-val weights IN MEMORY (never on disk).
     loss_fn(model, x, y) -> loss ; score_fn(model) -> (score, info_dict)."""
@@ -299,6 +303,8 @@ def onnx_logits(path, x, bs=512):
     return np.concatenate([sess.run(None, {name: x[i:i + bs]})[0] for i in range(0, len(x), bs)])
 
 
+# ---- ONNX -> PyTorch: pruning and early-exit training start from the exported ONNX files,
+# so the exact deployed weights are reused instead of separate PyTorch checkpoints.
 def onnx_conv_params(path):
     """Ordered (weight, bias) of every Conv node, and (W, b) of the final Gemm."""
     g = onnx.load(path).graph
@@ -335,6 +341,7 @@ def load_mobilenetv2_from_onnx(path):
     the folded weight+bias and the following BN is set to an exact identity
     (eps=0, mean 0, var 1, gamma 1, beta 0)."""
     convs, (lw, lb) = onnx_conv_params(path)
+    # walk MobileNetV2 convs in forward order; ONNX Conv nodes appear in the same order
     model = build_mobilenetv2()
     slots = []  # (parent_sequential, index) of every conv in forward (DFS) order
     for name, mod in model.named_modules():
@@ -442,6 +449,8 @@ class EarlyExitMobileNetV2(nn.Module):
         return self.head1(f1), self.head2(f2), self.final(f2)
 
 
+# Deployment wrappers: each exports ONE stage. Exit k+1 takes exit k's feature map as input,
+# so the three ONNX files together hold every weight exactly once.
 class Exit1(nn.Module):
     def __init__(self, m):
         super().__init__()
@@ -549,6 +558,7 @@ class AdaptiveONNXController:
         k = int(p.argmax())
         return k, float(p[k])
 
+    # threshold > 1 forces the frame down to max_exit (fixed-depth operating points)
     def predict(self, image, threshold, max_exit=3):
         """image: float32 (1,3,H,W) normalized. Returns (pred, exit, [conf per evaluated exit])."""
         t_model = 0.0

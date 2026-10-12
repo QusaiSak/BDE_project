@@ -1,3 +1,9 @@
+"""Evaluate statics and the early-exit model on val/test: temperature calibration (fit on
+val), threshold sweep, val-only threshold selection, per-frame controller check on test,
+per-class results and slide-43 failure modes.
+
+  python evaluate_models.py [--tolerance 0.01] [--force]
+"""
 import argparse
 import os
 
@@ -9,10 +15,9 @@ from tqdm import tqdm
 
 from utils import (CLASSES, MODEL_DIR, RESULT_DIR, AdaptiveONNXController, adaptive_paths, classification_metrics,
                    ece_score, fit_temperature, guard_overwrite, hard_exit, load_split, load_stats, onnx_exit_logits,
-                   onnx_logits, read_csv, simulate_exits, softmax, write_csv)
+                   normalize, onnx_logits, read_csv, simulate_exits, softmax, write_csv, STATIC)
 
 THRESHOLDS = [0.70, 0.80, 0.90, 0.95, 0.99]
-STATIC = {"baseline": "baseline.onnx", "pruned_25": "pruned/pruned_25.onnx", "pruned_50": "pruned/pruned_50.onnx"}
 
 
 def main():
@@ -33,7 +38,7 @@ def main():
     data = {}
     for s in ("val", "test"):
         x, y = load_split(s)
-        data[s] = (((x.astype(np.float32) / 255 - mean) / std).transpose(0, 3, 1, 2).copy(), y)
+        data[s] = (normalize(x, mean, std), y)
 
     # ------------------------------------------------------------------ static models
     static_rows, per_class_rows, calib_rows = [], [], []
@@ -123,6 +128,7 @@ def main():
                          "worst_class_acc": f"{np.nanmin(m['per_class']):.4f}", "selected": 0})
 
     # ------------------------------------------------------------------ selection on VAL
+    # cheapest (avg MACs) threshold whose val accuracy is within --tolerance of exit-3-only
     ref = float(next(r for r in rows if r["split"] == "val" and r["threshold"] == "exit3_only")["accuracy"])
     cands = [r for r in rows if r["split"] == "val" and r["calibration"] != "n/a"
              and float(r["accuracy"]) >= ref - a.tolerance]

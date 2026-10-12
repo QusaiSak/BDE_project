@@ -40,9 +40,8 @@ from tqdm import tqdm
 
 from utils import (CLASSES, IMPROVED_DIR, MODEL_DIR, RESULT_DIR, AdaptiveONNXController, adaptive_paths, classification_metrics,
                    file_size_mb, guard_overwrite, hard_exit, load_exit_macs, load_selected_config, load_split,
-                   load_stats, load_temperatures, make_session, normalize, onnx_exit_logits, read_csv, simulate_exits, write_csv)
+                   load_stats, load_temperatures, make_session, normalize, onnx_exit_logits, read_csv, simulate_exits, write_csv, STATIC)
 
-STATIC = {"baseline": "baseline.onnx", "pruned_25": "pruned/pruned_25.onnx", "pruned_50": "pruned/pruned_50.onnx"}
 BINS = np.linspace(0, 1, 11)
 G = {}  # per-worker state
 
@@ -135,10 +134,12 @@ def simulate(task):
                 if G["memo"] is not None:
                     G["memo"][key] = (pred, ex, confs, macs)
             extra = over_j  # measured controller overhead per frame
+        # energy model (ASSUMED constants): compute + fixed sensor/idle + controller/switch overhead
         cost = macs * c["nj_per_mac"] * 1e-9 + c["frame_mj"] * 1e-3 + extra
         if cost > E:
             break
         spent += cost
+        # solar harvest refills the battery, capped at full charge (surplus is wasted)
         E = min(E0, E - cost + solar_w(t, c) * dt)
         t += dt
         y = int(G["y"][i])
@@ -218,8 +219,7 @@ def main():
     a = ap.parse_args()
 
     names = ["simulation_log", "simulation_summary", "simulation_runs", "simulation_battery_bins",
-             "simulation_policy_sweep"]
-    names.append("simulation_mission")
+             "simulation_policy_sweep", "simulation_mission"]
     od = a.out_dir or os.path.join(IMPROVED_DIR, "simulation_solar" if a.solar else "simulation_battery")
     targets = a.targets or ([10, 12, 14, 16, 20, 24] if a.solar else [2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])
     out = {k: os.path.join(od, f"{k}{a.out_suffix}.csv") for k in names}
@@ -255,7 +255,6 @@ def main():
              for s in range(a.tune_seeds)]
     t0 = time.time()
     res = run_tasks(tasks, "val", a.memo, a.workers, "VAL sweep")
-    sweep = []
     for (p, cfg, _, _, _), (r, _, _) in zip(tasks, res):
         r["policy_label"] = p if p != "adaptive_battery" else \
             f"battery tmin={cfg['t_min']} tmax={cfg['t_max']} cap={cfg['cap_exit']}@{cfg['cap_below']}"
@@ -402,6 +401,7 @@ def main():
         rows_T = {}
         for p, rs in list(by.items()) + [("adaptive_budget", [r for (_, cfg, _, _, _), (r, _, _) in zip(btasks, bres)
                                                                if cfg["target_h"] == T])]:
+            # mission score: correct decisions within the first `need` frames / need (dead = missed)
             sc = np.array([r["_corr"][:need].sum() / need for r in rs])
             cov = np.array([min(r["frames"], need) / need for r in rs])
             alive = np.array([r["_corr"][:need].mean() for r in rs])

@@ -1,7 +1,11 @@
+"""Structured channel pruning (25% / 50%) of baseline.onnx, then BN re-estimation and
+fine-tuning; exports models/pruned/pruned_XX.onnx and results/pruning_results.csv.
+
+  python train_pruned.py [--ratios 0.25 0.5] [--epochs 15] [--force]
+"""
 import argparse
 import os
 
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

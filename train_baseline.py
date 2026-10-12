@@ -1,7 +1,11 @@
+"""Train the MobileNetV2 baseline (random init, stride-1 stem for 64x64 crops), optionally
+compare plain vs class-balanced CE on val macro-F1, export the winner to models/baseline.onnx.
+
+  python train_baseline.py [--balanced auto|on|off] [--epochs 50] [--force]
+"""
 import argparse
 import os
 
-import numpy as np
 import torch
 import torch.nn.functional as F
 

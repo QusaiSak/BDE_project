@@ -1,9 +1,0 @@
-check,result
-exit wrappers reference the training model's own Parameter objects,PASS
-stage1 params data_ptr == features[0..s1] data_ptr (same memory),PASS
-exit1.onnx scalar weights (incl. folded conv bias),13127
-exit2.onnx scalar weights (only stage2+head2; reuses exit1 feature),135071
-exit3.onnx scalar weights (only stage3+classifier; reuses exit2 feature),1130651
-sum over the three files,1278849
-params of whole 3-exit model (conv w + BN affine + linear),1291897
-params of the 25%-pruned static model (for overhead),1280099

@@ -1,0 +1,11 @@
+failure_mode,metric,value
+premature exit,test frames exiting early WRONG although exit 3 is right,0.0072
+premature exit,test accuracy loss vs exit-3-only (pts),0.46
+exit imbalance,test exit shares (1/2/3),0.111/0.423/0.466
+exit imbalance,max single-exit share,0.466
+calibration drift,exit-1 share val -> test,0.1109 -> 0.1111
+calibration drift,accuracy val -> test,0.8577 -> 0.8649
+calibration drift,ECE exit1/2/3 raw val,0.1143/0.1052/0.0439
+calibration drift,ECE exit1/2/3 temperature val -> test,0.0127/0.0129/0.0247 -> 0.0129/0.0092/0.0247
+aux-head overhead,MACs exit3 path / pruned_25 MACs,1.053
+aux-head overhead,params 3-exit model / pruned_25,1.009

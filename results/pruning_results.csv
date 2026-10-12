@@ -1,0 +1,8 @@
+model,ratio,stage,split,accuracy,macro_f1,macs,params,macs_vs_base,params_vs_base,onnx_mb
+baseline,0.0,reference,test,0.8815,0.8733,102189824,2237963,1.000,1.000,8.511
+pruned_25,0.25,pruned_no_finetune,val,0.1190,0.0315,60237888,1280099,0.589,0.572,
+pruned_25,0.25,finetuned_onnx,val,0.8353,0.8199,60237888,1280099,0.589,0.572,4.873
+pruned_25,0.25,finetuned_onnx,test,0.8362,0.8200,60237888,1280099,0.589,0.572,4.873
+pruned_50,0.5,pruned_no_finetune,val,0.1129,0.0184,29222272,587819,0.286,0.263,
+pruned_50,0.5,finetuned_onnx,val,0.7734,0.7413,29222272,587819,0.286,0.263,2.249
+pruned_50,0.5,finetuned_onnx,test,0.7826,0.7507,29222272,587819,0.286,0.263,2.249

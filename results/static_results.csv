@@ -1,0 +1,7 @@
+model,split,accuracy,macro_f1,ece,macs,worst_class,worst_class_acc
+baseline,val,0.8886,0.8827,0.0787,102189824,non-motorized_vehicle,0.7714
+baseline,test,0.8815,0.8733,0.0736,102189824,non-motorized_vehicle,0.7400
+pruned_25,val,0.8353,0.8199,0.0670,60237888,non-motorized_vehicle,0.4914
+pruned_25,test,0.8362,0.8200,0.0699,60237888,non-motorized_vehicle,0.4943
+pruned_50,val,0.7734,0.7413,0.0734,29222272,non-motorized_vehicle,0.2114
+pruned_50,test,0.7826,0.7507,0.0867,29222272,non-motorized_vehicle,0.2486

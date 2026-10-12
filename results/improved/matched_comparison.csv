@@ -1,0 +1,4 @@
+static_model,static_macs,static_acc,best_adaptive_at_or_below_macs,its_macs,its_acc,acc_delta_pts,cheapest_adaptive_within_0.5pt,its_macs_2,macs_saving_vs_static
+baseline,102189824,0.8815,adaptive_thr0.95_none,60340054,0.8695,-1.20,none,,
+pruned_25,60237888,0.8362,adaptive_thr0.99_temperature,58847246,0.8695,+3.33,adaptive_thr0.5_none,38535498,+0.360
+pruned_50,29222272,0.7826,adaptive_exit1_only,19723648,0.4991,-28.35,adaptive_thr0.5_temperature,32614468,-0.116

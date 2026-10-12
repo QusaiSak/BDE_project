@@ -1,0 +1,4 @@
+model,variant,selected,split,accuracy,macro_f1,source,macs,params,onnx_mb
+baseline,balanced,1,val,,0.8827,pytorch (selection),,,
+baseline,balanced,1,val,0.8886,0.8827,onnxruntime,102189824,2237963,8.511
+baseline,balanced,1,test,0.8815,0.8733,onnxruntime,102189824,2237963,8.511

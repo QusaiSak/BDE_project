@@ -140,15 +140,17 @@ Average MACs for an adaptive point = the mean over test frames of the MACs actua
 Each static model is compared to the swept points in two ways:
 
 1. **Same compute:** the best adaptive accuracy using **≤ the static model's MACs**.
-   `Δacc = acc_adaptive − acc_static`
+  `Δacc = acc_adaptive − acc_static`
 2. **Same accuracy:** the cheapest adaptive point within **0.5 points** of the static accuracy.
-   `MAC saving = 1 − MACs_adaptive / MACs_static`
+  `MAC saving = 1 − MACs_adaptive / MACs_static`
 
-| Static model | Static acc | Best adaptive at ≤ same MACs | Cheapest adaptive at ≈ same acc | Verdict |
-| --- | --- | --- | --- | --- |
-| baseline (102 M) | 88.2% | 86.95% at 60 M (−1.2 pts) | none reaches it | −1.2 pts for 41% fewer MACs |
-| pruned_25 (60 M) | 83.6% | 86.95% at 59 M (**+3.3 pts**) | 38.5 M (**−36% MACs**) | adaptive wins on both |
-| pruned_50 (29 M) | 78.3% | none useful (exit 1 alone: 49.9%) | 32.6 M (+12% MACs) | pruned_50 wins / tie |
+
+| Static model     | Static acc | Best adaptive at ≤ same MACs      | Cheapest adaptive at ≈ same acc | Verdict                     |
+| ---------------- | ---------- | --------------------------------- | ------------------------------- | --------------------------- |
+| baseline (102 M) | 88.2%      | 86.95% at 60 M (−1.2 pts)         | none reaches it                 | −1.2 pts for 41% fewer MACs |
+| pruned_25 (60 M) | 83.6%      | 86.95% at 59 M (**+3.3 pts**)     | 38.5 M (**−36% MACs**)          | adaptive wins on both       |
+| pruned_50 (29 M) | 78.3%      | none useful (exit 1 alone: 49.9%) | 32.6 M (+12% MACs)              | pruned_50 wins / tie        |
+
 
 **In short:** at the same compute, adaptive is 3.3 points better than pruned_25. At the same accuracy, it needs
 36% fewer MACs. It gets within 1.2 points of the baseline at 41% less compute. It does not beat pruned_50,
@@ -186,7 +188,7 @@ Full results: `results/improved/`.
 ## How to run
 
 **1. Download the dataset first.** Get **MIO-TCD-Classification** from the
-[MIO-TCD website](https://tcd.miovision.com/) and unzip it so the folder looks like:
+[MIO-TCD website](https://tcd.miovision.com/challenge/dataset.html) and unzip it so the folder looks like:
 
 ```
 <data_dir>/MIO-TCD-Classification/train/<class_name>/*.jpg

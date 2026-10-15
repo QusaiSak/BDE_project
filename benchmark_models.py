@@ -47,6 +47,7 @@ def main():
     paths = adaptive_paths()
     rows = []
 
+    # time fn on every frame (one at a time, like a camera); warm-up runs are not timed
     def run(name, fn, kind, avg_macs, size):
         for i in range(a.warmup):
             fn(frames[i % a.n])
@@ -62,6 +63,7 @@ def main():
         print(f"{name:34s} mean {r['mean_ms']} ms  p95 {r['p95_ms']} ms  p99 {r['p99_ms']}  MACs {int(avg_macs):,}")
         return ms
 
+    # static models: one ONNX call per frame
     for name, rel in (("baseline", "baseline.onnx"), ("pruned_25", "pruned/pruned_25.onnx"),
                       ("pruned_50", "pruned/pruned_50.onnx")):
         s = make_session(os.path.join(MODEL_DIR, rel), threads=1)
@@ -93,6 +95,7 @@ def main():
             ex = np.array(exits[a.warmup:])
             rows[-1]["avg_macs"] = int(round(sum((ex == k).mean() * cum[k - 1] for k in (1, 2, 3))))
             rows[-1]["exit_shares"] = "/".join(f"{(ex == k).mean():.3f}" for k in (1, 2, 3))
+            # controller overhead = total time - time spent inside ONNX Runtime
             over = np.asarray(tot) - np.asarray(model_ms[a.warmup:])
             rows[-1]["controller_overhead_ms"] = f"{over.mean():.4f}"
             rows[-1]["selected_on_val"] = int(name == sel_name)

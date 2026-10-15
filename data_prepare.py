@@ -27,6 +27,7 @@ def main():
     ap.add_argument("--force", action="store_true")
     a = ap.parse_args()
 
+    # ---- 1. check the dataset is on disk with the expected 11 class folders
     train_dir = os.path.join(a.root, "MIO-TCD-Classification", "train")
     assert os.path.isdir(train_dir), f"missing {train_dir}"
     found = sorted(d for d in os.listdir(train_dir) if os.path.isdir(os.path.join(train_dir, d)))
@@ -43,11 +44,13 @@ def main():
         counts.append(len(names))
     print(f"total {sum(counts)} (expected {sum(EXPECTED.values())})")
 
+    # ---- 2. per class: keep at most --max-per-class images, then split 70/10/20 (stratified)
     rng = np.random.default_rng(a.seed)
     splits = {"train": [], "val": [], "test": []}
     rows_counts = []
     for c, n_orig in zip(CLASSES, counts):
         items = files[c]
+        # random subset (cap), sorted so the result does not depend on listing order
         keep = sorted(rng.choice(len(items), size=min(a.max_per_class, len(items)), replace=False))
         chosen = [items[i] for i in keep]
         perm = rng.permutation(len(chosen))
@@ -65,6 +68,7 @@ def main():
         write_csv(os.path.join(SPLIT_DIR, f"{s}.csv"), rows, a.force)
     write_csv(os.path.join(DATA_DIR, "class_counts.csv"), rows_counts, a.force)
 
+    # ---- 3. decode + resize every image once and store as uint8 arrays (fast loading later)
     os.makedirs(CACHE_DIR, exist_ok=True)
     arrays = {}
     with Pool(a.workers) as pool:
@@ -77,6 +81,7 @@ def main():
             np.savez(path, x=x, y=y)
             arrays[s] = x
 
+    # ---- 4. per-channel mean/std from TRAIN only (val/test never leak into normalization)
     xt = arrays["train"].astype(np.float64) / 255.0
     mean, std = xt.mean((0, 1, 2)), xt.std((0, 1, 2))
     stats = [{"key": "image_size", "value": a.image_size}, {"key": "seed", "value": a.seed},

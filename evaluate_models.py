@@ -17,7 +17,7 @@ from utils import (CLASSES, MODEL_DIR, RESULT_DIR, AdaptiveONNXController, adapt
                    ece_score, fit_temperature, guard_overwrite, hard_exit, load_split, load_stats, onnx_exit_logits,
                    normalize, onnx_logits, read_csv, simulate_exits, softmax, write_csv, STATIC)
 
-THRESHOLDS = [0.70, 0.80, 0.90, 0.95, 0.99]
+THRESHOLDS = [0.50, 0.60, 0.70, 0.80, 0.90, 0.95, 0.99]
 
 
 def main():
@@ -61,11 +61,14 @@ def main():
     paths = adaptive_paths(a.tag)
     cum = [int(r["cumulative_macs"]) for r in read_csv(os.path.join(RESULT_DIR, "exit_flops.csv"))]
     base_macs = macs_static["baseline"]
+    # logits of ALL three exits for every image; any threshold can then be simulated offline
     logits = {s: onnx_exit_logits(paths, data[s][0]) for s in ("val", "test")}
+    # temperature scaling: one T per exit, fit on val. softmax(z / T) makes confidence match accuracy
     temps = [fit_temperature(logits["val"][k], data["val"][1]) for k in range(3)]
     print("temperatures fitted on val:", [round(t, 3) for t in temps])
 
     fig, axes = plt.subplots(1, 3, figsize=(13, 4.2))
+    # ECE before/after temperature scaling per exit + reliability plot
     for k in range(3):
         for s in ("val", "test"):
             y = data[s][1]
@@ -92,6 +95,8 @@ def main():
     write_csv(out["calibration_results"], calib_rows, a.force)
 
     # ------------------------------------------------------------------ threshold sweep
+    # Each (calibration, threshold) gives one operating point: accuracy + average MACs.
+    # These points are what the accuracy-vs-compute comparison and Pareto plot use.
     rows, dist_rows = [], []
     for s in ("val", "test"):
         y = data[s][1]
@@ -101,7 +106,9 @@ def main():
                 pred, ex = simulate_exits(logits[s], thr, T)
                 m = classification_metrics(y, pred)
                 share = [float((ex == k).mean()) for k in (1, 2, 3)]
+                # avg MACs = sum_k (share of frames leaving at exit k) * (MACs to reach exit k)
                 avg = float(sum(p * c for p, c in zip(share, cum)))
+                # premature exit: left early with a wrong answer that exit 3 would have got right
                 early = ex < 3
                 premature = float((early & (pred != y) & exit3_correct).mean())
                 rows.append({"split": s, "calibration": calib, "threshold": thr, "accuracy": f"{m['accuracy']:.4f}",
@@ -144,6 +151,7 @@ def main():
     sel_thr = float(best["threshold"])
 
     # ------------------------------------------------------------------ real controller on test
+    # run the actual frame-by-frame controller and check it matches the vectorised sweep
     ctrl = AdaptiveONNXController(paths, sel_T, threads=1)
     xt, yt = data["test"]
     cp, ce = np.empty(len(yt), int), np.empty(len(yt), int)

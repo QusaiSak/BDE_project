@@ -49,6 +49,7 @@ def main():
     xv = normalize(xv_u8, mean, std)
     xvd = torch.from_numpy(xv).to(device)
 
+    # start from the pruned_25 weights and attach two extra exit heads (exit 3 = original classifier)
     backbone = load_mobilenetv2_from_onnx(a.init).to(device)
     reestimate_bn(backbone, train[0])  # function-preserving, makes BN trainable
     model = EarlyExitMobileNetV2(backbone, a.splits, a.head_ch).to(device)

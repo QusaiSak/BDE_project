@@ -15,16 +15,20 @@ from utils import (MODEL_DIR, RESULT_DIR, build_mobilenetv2, classification_metr
 
 
 def train_variant(balanced, a, train, val, device):
+    """Train one baseline from scratch; balanced=True weights the loss by inverse class frequency."""
     set_seed(a.seed)
     model = build_mobilenetv2().to(device)
     w = None
     if balanced:
+        # weight_k = N / (num_classes * count_k): rare classes count more in the loss
         cnt = torch.bincount(train[1], minlength=len(CLASSES)).float()
         w = (cnt.sum() / (len(cnt) * cnt)).to(device)
 
+    # cross-entropy with label smoothing 0.1 (softens targets, reduces over-confidence)
     def loss_fn(m, x, y):
         return F.cross_entropy(m(x), y, weight=w, label_smoothing=0.1)
 
+    # best epoch = highest val macro-F1 (fair to small classes)
     def score_fn(m):
         pred = predict_torch(m, val[0])[0].argmax(1).numpy()
         r = classification_metrics(val[1].cpu().numpy(), pred)
@@ -56,6 +60,7 @@ def main():
     mean, std, size = load_stats()
     train, val = make_tensors("train", mean, std, device), make_tensors("val", mean, std, device)
 
+    # "auto" trains plain AND balanced and keeps the one with better val macro-F1
     variants = {"auto": [False, True], "on": [True], "off": [False]}[a.balanced]
     trained, hist_rows = {}, []
     for b in variants:
@@ -67,6 +72,7 @@ def main():
           "-> selected on val macro-F1:", "balanced" if chosen else "plain")
     write_csv(os.path.join(RESULT_DIR, "baseline_history.csv"), hist_rows, a.force)
 
+    # export the winner to ONNX, then measure cost (MACs, params) and ONNX accuracy on val + test
     model = trained[chosen][0].cpu().eval()
     xv, yv = load_split("val")
     xt, yt = load_split("test")

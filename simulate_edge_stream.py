@@ -72,6 +72,7 @@ def run_adaptive(i, thr, max_exit):
 
 
 def solar_w(t_s, c):
+    """Solar power (W) at time t_s: half a sine wave from 06:00 to 18:00, zero at night."""
     if not c["solar"]:
         return 0.0
     h = (c["start_hour"] + t_s / 3600.0) % 24
@@ -101,13 +102,15 @@ def simulate(task):
     preds, trues, exits, bat, macs_l, thr_l, log = [], [], [], [], [], [], []
     current, switches, t, spent = None, 0, 0.0, 0.0
     for f, i in enumerate(order):
-        b = E / E0
+        b = E / E0  # battery fraction 0..1
+        # each policy decides which model / threshold to use for this frame
         thr, ex, confs = np.nan, 0, []
         if pol in STATIC:
             pred, macs = run_static(pol, i)
             extra = 0.0
         elif pol == "switching":
-            name = "baseline" if b > cfg["hi"] else "pruned_25" if b > cfg["lo"] else "pruned_50"
+            # bag of models: pick a model by battery band; loading a new one costs energy
+            name ="baseline" if b > cfg["hi"] else "pruned_25" if b > cfg["lo"] else "pruned_50"
             extra = 0.0
             if current is not None and name != current:
                 extra = G["mb"][name] * c["switch_j_per_mb"]
@@ -124,6 +127,7 @@ def simulate(task):
                 budget_macs = (budget_j - c["frame_mj"] * 1e-3 - over_j) / (c["nj_per_mac"] * 1e-9)
                 thr, cap = budget_threshold(budget_macs, c), 3
             else:
+                # battery-aware: thr(b) = T_MIN + (T_MAX - T_MIN) * b  -> low battery, lower thr, earlier exits
                 thr = cfg["t_min"] + (cfg["t_max"] - cfg["t_min"]) * b
                 cap = cfg["cap_exit"] if b < cfg["cap_below"] else 3
             key = (round(thr, 4), cap, int(i))
@@ -246,6 +250,8 @@ def main():
     c["reserve_j"] = cum[-1] * c["nj_per_mac"] * 1e-9 + c["frame_mj"] * 1e-3 + ctrl_ms * 1e-3 * c["cpu_w"]
 
     # ---------------- step 1: tune the battery-aware policy on VALIDATION
+    # 5 T_MIN x 3 T_MAX x 3 cap options = 45 configs. Keep the one with the most correct decisions
+    # per charge whose val accuracy is within --acc-tolerance of the fixed-threshold policy.
     grid = []
     for t_min, t_max, (cap_exit, cap_below) in itertools.product([0.4, 0.5, 0.6, 0.7, 0.8], [0.9, 0.95, 0.99],
                                                                   [(3, 0.0), (2, 0.2), (1, 0.1)]):

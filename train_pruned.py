@@ -59,9 +59,11 @@ def main():
 
     train = make_tensors("train", mean, std, device)
     for r, name in names.items():
+        # every ratio starts from the same trained baseline weights
         set_seed(a.seed)
         model = load_mobilenetv2_from_onnx(base_path)
         before = conv_channels(model)
+        # remove the r fraction of channels with the smallest L2 norm (tensors physically shrink)
         model = prune_model(model, r, example)
         after = conv_channels(model)
         print(f"{name}: conv channels {sum(before)} -> {sum(after)}  (stem {before[0]}->{after[0]}, "
@@ -70,6 +72,7 @@ def main():
         pre = classification_metrics(yv, pv)
         print(f"{name}: val acc right after pruning (no fine-tune) {pre['accuracy']:.4f}")
 
+        # pruning drops accuracy; make BN trainable again, then fine-tune to recover
         model = model.to(device)
         reestimate_bn(model, train[0])
         xvd, yvd = torch.from_numpy(xv).to(device), yv
@@ -83,6 +86,7 @@ def main():
             return rr["macro_f1"], {"val_acc": rr["accuracy"]}
 
         fit(model, loss_fn, score_fn, train, a.epochs, a.lr, a.wd, a.bs, desc=name)
+        # export the fine-tuned model and record accuracy before/after fine-tuning plus its cost
         model = model.cpu().eval()
         path = os.path.join(MODEL_DIR, "pruned", f"{name}.onnx")
         export_onnx(model, path, example, ["image"], ["logits"], a.force, check_inputs=torch.from_numpy(xv[:64]))

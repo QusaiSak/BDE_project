@@ -130,6 +130,7 @@ def classification_metrics(y_true, y_pred):
 
 
 def softmax(z, T=1.0):
+    """Class probabilities from logits. T is the temperature (T=1 = plain softmax)."""
     z = z / T
     z = z - z.max(axis=1, keepdims=True)
     e = np.exp(z)
@@ -137,6 +138,8 @@ def softmax(z, T=1.0):
 
 
 def ece_score(probs, y, n_bins=15):
+    """Expected calibration error: group predictions by confidence into bins, then
+    ECE = sum_bins (share of samples in bin) * |accuracy in bin - mean confidence in bin|."""
     conf, pred = probs.max(1), probs.argmax(1)
     bins = np.linspace(0, 1, n_bins + 1)
     ece, rel = 0.0, []
@@ -152,6 +155,7 @@ def ece_score(probs, y, n_bins=15):
 def fit_temperature(logits, y):
     """Single scalar temperature minimising NLL (fit on VALIDATION only)."""
     lt, yt = torch.tensor(logits, dtype=torch.float64), torch.tensor(y)
+    # optimise log(T) so T stays positive; start at T = 1
     log_t = torch.zeros(1, dtype=torch.float64, requires_grad=True)
     opt = torch.optim.LBFGS([log_t], lr=0.1, max_iter=200)
 
@@ -234,6 +238,7 @@ def fit(model, loss_fn, score_fn, train, epochs, lr, wd=1e-4, bs=256, desc="trai
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, steps)
     best, best_state, history = -1.0, None, []
     for ep in range(1, epochs + 1):
+        # one epoch: shuffle, augment each batch, step the optimizer and LR schedule
         model.train()
         if sampler_weights is not None:
             perm = torch.multinomial(sampler_weights, len(xtr), replacement=True)
@@ -250,6 +255,7 @@ def fit(model, loss_fn, score_fn, train, epochs, lr, wd=1e-4, bs=256, desc="trai
             sched.step()
             tot += float(loss) * len(idx)
             n += len(idx)
+        # evaluate on val after every epoch; keep the best weights seen so far
         score, info = score_fn(model)
         history.append({"epoch": ep, "train_loss": tot / n, "val_score": score, **info})
         tag = ""
@@ -413,6 +419,7 @@ def prune_model(model, ratio, example):
 
 # --------------------------------------------------------------------------- early exit
 def exit_head(c_in, c_mid, num_classes=NUM_CLASSES):
+    """Small classifier for an early exit: 1x1 conv -> BN -> ReLU6 -> global avg pool -> linear."""
     return nn.Sequential(nn.Conv2d(c_in, c_mid, 1, bias=False), nn.BatchNorm2d(c_mid), nn.ReLU6(inplace=True),
                          nn.AdaptiveAvgPool2d(1), nn.Flatten(), nn.Linear(c_mid, num_classes))
 
@@ -426,6 +433,7 @@ class EarlyExitMobileNetV2(nn.Module):
         self.features, self.classifier = backbone.features, backbone.classifier
         self.splits = tuple(splits)
         s1, s2 = self.splits
+        # cut the backbone into 3 stages; slicing shares the same layers (no copies)
         self.stage1 = self.features[: s1 + 1]
         self.stage2 = self.features[s1 + 1: s2 + 1]
         self.stage3 = self.features[s2 + 1:]
@@ -444,6 +452,7 @@ class EarlyExitMobileNetV2(nn.Module):
         return self.classifier(torch.flatten(F.adaptive_avg_pool2d(self.stage3(f), 1), 1))
 
     def forward(self, x):
+        # training runs every exit so all three heads get a loss
         f1 = self.stage1(x)
         f2 = self.stage2(f1)
         return self.head1(f1), self.head2(f2), self.final(f2)
@@ -530,6 +539,7 @@ def simulate_exits(logits, threshold, temps=(1.0, 1.0, 1.0), max_exit=3):
     done = np.zeros(n, dtype=bool)
     for k in range(max_exit):
         p = softmax(logits[k], temps[k])
+        # a frame stops at the first exit whose top probability >= threshold (or the last exit)
         stop = ~done & ((p.max(1) >= threshold) | (k == max_exit - 1))
         pred[stop], ex[stop] = p.argmax(1)[stop], k + 1
         done |= stop
@@ -562,6 +572,7 @@ class AdaptiveONNXController:
     def predict(self, image, threshold, max_exit=3):
         """image: float32 (1,3,H,W) normalized. Returns (pred, exit, [conf per evaluated exit])."""
         t_model = 0.0
+        # exit 1: run stage 1 on the image; stop if confident enough
         t0 = time.perf_counter()
         l1, f1 = self.sess[0].run(None, {"image": image})
         t_model += time.perf_counter() - t0
@@ -570,6 +581,7 @@ class AdaptiveONNXController:
         if c >= threshold or max_exit == 1:
             self.last_model_time = t_model
             return pred, 1, confs
+        # exit 2: continue from exit 1's feature map (no recomputation)
         t0 = time.perf_counter()
         l2, f2 = self.sess[1].run(None, {"s1_feat_in": f1})
         t_model += time.perf_counter() - t0
@@ -578,6 +590,7 @@ class AdaptiveONNXController:
         if c >= threshold or max_exit == 2:
             self.last_model_time = t_model
             return pred, 2, confs
+        # exit 3: full network, always returns
         t0 = time.perf_counter()
         (l3,) = self.sess[2].run(None, {"s2_feat_in": f2})
         t_model += time.perf_counter() - t0
